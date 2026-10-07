@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width, initial-scale=1">
+
+<title>Event Check-In</title>
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+
+<style>
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 15px;
+  font-family: Arial, sans-serif;
+  background: #f3f5f7;
+}
+
+.container {
+  max-width: 600px;
+  margin: auto;
+  background: white;
+  padding: 25px;
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.10);
+}
+
+h1 {
+  text-align: center;
+  margin: 0 0 5px;
+}
+
+.subtitle {
+  text-align: center;
+  color: #666;
+  margin-bottom: 20px;
+}
+
+#reader {
+  width: 100%;
+  max-width: 500px;
+  margin: auto;
+}
+
+button {
+  width: 100%;
+  padding: 15px;
+  border: none;
+  border-radius: 10px;
+  background: #1769aa;
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-bottom: 15px;
+}
+
+button:disabled {
+  background: #999;
+}
+
+#result {
+  margin-top: 20px;
+  padding: 20px;
+  border-radius: 12px;
+  text-align: center;
+  background: #f1f1f1;
+}
+
+.success {
+  background: #d9f7df !important;
+  color: #176b2c;
+}
+
+.error {
+  background: #ffdede !important;
+  color: #9b0000;
+}
+
+.loading {
+  background: #fff3cd !important;
+  color: #856404;
+}
+
+.nama {
+  font-size: 25px;
+  font-weight: bold;
+  margin: 10px 0;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>📷 SCAN CHECK-IN</h1>
+
+<div class="subtitle">
+Scan QR peserta atau panitia
+</div>
+
+<button
+  id="startButton"
+  onclick="startCamera()">
+  📷 MULAI KAMERA
+</button>
+
+<div id="reader"></div>
+
+<div id="result">
+Tekan <b>MULAI KAMERA</b>
+</div>
+
+</div>
+
+
+<script>
+
+/* =====================================
+   URL GOOGLE APPS SCRIPT
+===================================== */
+
+const APPS_SCRIPT_URL =
+'https://script.google.com/macros/s/AKfycbyxkxd3GE-QXZc-C_1oY6jyjW3tYOcXB4hN3sInxZrwuktBfya48wkedrHb-InDRL6ctQ/exec';
+
+
+let scanner = null;
+
+let processing = false;
+
+
+/* =====================================
+   START CAMERA
+===================================== */
+
+async function startCamera() {
+
+  const button =
+    document.getElementById('startButton');
+
+  const result =
+    document.getElementById('result');
+
+  button.disabled = true;
+
+  button.innerHTML =
+    '⏳ MEMBUKA KAMERA...';
+
+  result.className = 'loading';
+
+  result.innerHTML =
+    'Meminta izin kamera...';
+
+  try {
+
+    scanner =
+      new Html5Qrcode('reader');
+
+
+    await scanner.start(
+
+      {
+        facingMode: {
+          exact: "environment"
+        }
+      },
+
+      {
+        fps: 10,
+
+        qrbox: {
+          width: 280,
+          height: 280
+        }
+      },
+
+      onScanSuccess,
+
+      function(error) {
+        // Abaikan error scanning biasa
+      }
+
+    );
+
+
+    button.style.display = 'none';
+
+    result.className = '';
+
+    result.innerHTML =
+      '🟢 <b>KAMERA AKTIF</b><br>' +
+      'Arahkan QR Code ke kamera.';
+
+  }
+
+  catch(error) {
+
+    console.error(error);
+
+    button.disabled = false;
+
+    button.innerHTML =
+      '📷 COBA LAGI';
+
+    result.className = 'error';
+
+    result.innerHTML =
+      '<h3>❌ KAMERA TIDAK BISA DIBUKA</h3>' +
+      '<p>' +
+      cameraError(error) +
+      '</p>';
+
+  }
+
+}
+
+
+/* =====================================
+   QR BERHASIL
+===================================== */
+
+function onScanSuccess(decodedText) {
+
+  if (processing) return;
+
+  processing = true;
+
+  const result =
+    document.getElementById('result');
+
+  result.className = 'loading';
+
+  result.innerHTML =
+    '<h3>⏳ MEMVALIDASI...</h3>' +
+    '<p>Mohon tunggu.</p>';
+
+
+  try {
+    scanner.pause(true);
+  }
+  catch(e) {}
+
+
+  checkIn(decodedText);
+
+}
+
+
+/* =====================================
+   KIRIM KE GOOGLE APPS SCRIPT
+===================================== */
+
+function checkIn(qrData) {
+
+  const callbackName =
+    'callback_' + Date.now();
+
+
+  window[callbackName] =
+    function(response) {
+
+      showResult(response);
+
+      delete window[callbackName];
+
+    };
+
+
+  const url =
+    APPS_SCRIPT_URL +
+    '?api=checkin' +
+    '&qr=' +
+    encodeURIComponent(qrData) +
+    '&callback=' +
+    callbackName;
+
+
+  const script =
+    document.createElement('script');
+
+  script.src = url;
+
+  script.onerror = function() {
+
+    delete window[callbackName];
+
+    showError(
+      'Tidak dapat terhubung ke server.'
+    );
+
+  };
+
+  document.body.appendChild(script);
+
+}
+
+
+/* =====================================
+   HASIL
+===================================== */
+
+function showResult(response) {
+
+  const result =
+    document.getElementById('result');
+
+
+  if (response.success) {
+
+    result.className = 'success';
+
+    result.innerHTML =
+
+      '<h2>✅ CHECK-IN BERHASIL</h2>' +
+
+      '<div class="nama">' +
+      escapeHtml(response.nama) +
+      '</div>' +
+
+      '<p>NIM: ' +
+      escapeHtml(response.nim) +
+      '</p>' +
+
+      '<p>Ticket ID:<br><b>' +
+      escapeHtml(response.ticketId) +
+      '</b></p>' +
+
+      '<p>' +
+      escapeHtml(response.waktu) +
+      '</p>';
+
+  }
+
+
+  else if (response.duplicate) {
+
+    result.className = 'error';
+
+    result.innerHTML =
+
+      '<h2>⚠️ SUDAH CHECK-IN</h2>' +
+
+      '<div class="nama">' +
+      escapeHtml(response.nama) +
+      '</div>' +
+
+      '<p>Check-in sebelumnya:</p>' +
+
+      '<b>' +
+      escapeHtml(response.waktu) +
+      '</b>';
+
+  }
+
+
+  else {
+
+    result.className = 'error';
+
+    result.innerHTML =
+
+      '<h2>❌ QR TIDAK VALID</h2>' +
+
+      '<p>' +
+      escapeHtml(response.message) +
+      '</p>';
+
+  }
+
+
+  setTimeout(
+    resetScanner,
+    2500
+  );
+
+}
+
+
+/* =====================================
+   RESET
+===================================== */
+
+function resetScanner() {
+
+  processing = false;
+
+  const result =
+    document.getElementById('result');
+
+  result.className = '';
+
+  result.innerHTML =
+    '🟢 Silakan scan peserta berikutnya.';
+
+  try {
+
+    scanner.resume();
+
+  }
+
+  catch(e) {}
+
+}
+
+
+/* =====================================
+   ERROR
+===================================== */
+
+function showError(message) {
+
+  processing = false;
+
+  const result =
+    document.getElementById('result');
+
+  result.className = 'error';
+
+  result.innerHTML =
+    '<h3>❌ ERROR</h3>' +
+    '<p>' +
+    escapeHtml(message) +
+    '</p>';
+
+}
+
+
+/* =====================================
+   CAMERA ERROR
+===================================== */
+
+function cameraError(error) {
+
+  const text =
+    String(error).toLowerCase();
+
+  if (text.includes('permission')) {
+
+    return 'Izin kamera ditolak. Periksa izin kamera browser.';
+
+  }
+
+  if (text.includes('secure')) {
+
+    return 'Scanner harus dibuka melalui HTTPS.';
+
+  }
+
+  return (
+    'Pastikan menggunakan Google Chrome ' +
+    'dan kamera tersedia pada perangkat.'
+  );
+
+}
+
+
+/* =====================================
+   SECURITY
+===================================== */
+
+function escapeHtml(value) {
+
+  const div =
+    document.createElement('div');
+
+  div.textContent =
+    value || '';
+
+  return div.innerHTML;
+
+}
+
+</script>
+
+</body>
+</html>
